@@ -5,9 +5,11 @@ set(CMAKE_BUILD_TYPE "Release")
 ADD_COMPILE_OPTIONS(-std=c++14 )
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
+set(CMAKE_PREFIX_PATH /opt/ros/noetic;/usr/local;$ENV{HOME}/planner_ws/devel;$ENV{HOME}/mapping_ws/devel;$ENV{HOME}/tool_ws/devel)
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+
 find_package(Eigen3 REQUIRED)
 find_package(PCL 1.7 REQUIRED)
-
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
@@ -15,8 +17,8 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   plan_env
   cv_bridge
+        sdf_tools
 )
-
 
 catkin_package(
  INCLUDE_DIRS include
@@ -33,9 +35,11 @@ include_directories(
     ${PCL_INCLUDE_DIRS}
 )
 
-add_library( path_searching 
+add_library(path_searching
+        src/kinodynamic_astar.cpp
+        src/astar.cpp
     src/dyn_a_star.cpp
     )
-target_link_libraries( path_searching
+target_link_libraries(path_searching
     ${catkin_LIBRARIES} 
     )  
