@@ -1,12 +1,34 @@
+/**
+* This file is part of Fast-Planner.
+*
+* Copyright 2019 Boyu Zhou, Aerial Robotics Group, Hong Kong University of Science and Technology, <uav.ust.hk>
+* Developed by Boyu Zhou <bzhouai at connect dot ust dot hk>, <uv dot boyuzhou at gmail dot com>
+* for more information see <https://github.com/HKUST-Aerial-Robotics/Fast-Planner>.
+* If you use this code, please cite the respective publications as
+* listed on the above website.
+*
+* Fast-Planner is free software: you can redistribute it and/or modify
+* it under the terms of the GNU Lesser General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* Fast-Planner is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU Lesser General Public License
+* along with Fast-Planner. If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <path_searching/kinodynamic_astar.h>
 #include <sstream>
+#include <plan_env/sdf_map.h>
 
 using namespace std;
 using namespace Eigen;
 
-#define DEBUG 1
-
-namespace dyn_planner
+namespace fast_planner
 {
 KinodynamicAstar::~KinodynamicAstar()
 {
@@ -22,7 +44,6 @@ int KinodynamicAstar::search(Eigen::Vector3d start_pt, Eigen::Vector3d start_v, 
   start_vel_ = start_v;
   start_acc_ = start_a;
 
-  /* ---------- initialize ---------- */
   PathNodePtr cur_node = path_node_pool_[0];
   cur_node->parent = NULL;
   cur_node->state.head(3) = start_pt;
@@ -39,7 +60,6 @@ int KinodynamicAstar::search(Eigen::Vector3d start_pt, Eigen::Vector3d start_v, 
   end_index = posToIndex(end_pt);
   cur_node->f_score = lambda_heu_ * estimateHeuristic(cur_node->state, end_state, time_to_goal);
   cur_node->node_state = IN_OPEN_SET;
-
   open_set_.push(cur_node);
   use_node_num_ += 1;
 
@@ -59,77 +79,80 @@ int KinodynamicAstar::search(Eigen::Vector3d start_pt, Eigen::Vector3d start_v, 
   bool init_search = init;
   const int tolerance = ceil(1 / resolution_);
 
-  /* ---------- search loop ---------- */
   while (!open_set_.empty())
   {
-    /* ---------- get lowest f_score node ---------- */
     cur_node = open_set_.top();
-#ifdef DEBUG
-    cout << "cur pos: " << cur_node->state.head(3).transpose() << endl;
-    cout << "time: " << cur_node->time << endl;
-    cout << "dist: " << edt_env_->evaluateCoarseEDT(cur_node->state.head(3), cur_node->time) << endl;
-#endif     
-    /* ---------- determine termination ---------- */
 
+    // Terminate?
+    bool reach_horizon = (cur_node->state.head(3) - start_pt).norm() >= horizon_;
     bool near_end = abs(cur_node->index(0) - end_index(0)) <= tolerance &&
                     abs(cur_node->index(1) - end_index(1)) <= tolerance &&
                     abs(cur_node->index(2) - end_index(2)) <= tolerance;
-    bool reach_horizon = (cur_node->state.head(3) - start_pt).norm() >= horizon_;
 
     if (reach_horizon || near_end)
     {
-      // cout << "[Kino Astar]: used node num: " << use_node_num_ << ", iter num: " << iter_num_ << endl;
       terminate_node = cur_node;
       retrievePath(terminate_node);
-      has_path_ = true;
-
       if (near_end)
       {
-
-#ifdef DEBUG
-        cout << "[Kino Astar]: near end." << endl;
-#endif  
-        /* one shot trajectory */
+        // Check whether shot traj exist
         estimateHeuristic(cur_node->state, end_state, time_to_goal);
         computeShotTraj(cur_node->state, end_state, time_to_goal);
-
-        if (terminate_node->parent == NULL && !is_shot_succ_)
-          return NO_PATH;
-        else
-          return REACH_END;
+        if (init_search)
+          ROS_ERROR("Shot in first search loop!");
       }
-      else if (reach_horizon)
+    }
+    if (reach_horizon)
+    {
+      if (is_shot_succ_)
       {
-        
-#ifdef DEBUG
-cout << "[Kino Astar]: Reach horizon_" << endl;
-#endif  
+        std::cout << "reach end" << std::endl;
+        return REACH_END;
+      }
+      else
+      {
+        std::cout << "reach horizon" << std::endl;
         return REACH_HORIZON;
       }
     }
 
-    /* ---------- pop node and add to close set ---------- */
+    if (near_end)
+    {
+      if (is_shot_succ_)
+      {
+        std::cout << "reach end" << std::endl;
+        return REACH_END;
+      }
+      else if (cur_node->parent != NULL)
+      {
+        std::cout << "near end" << std::endl;
+        return NEAR_END;
+      }
+      else
+      {
+        std::cout << "no path" << std::endl;
+        return NO_PATH;
+      }
+    }
     open_set_.pop();
     cur_node->node_state = IN_CLOSE_SET;
     iter_num_ += 1;
 
-    /* ---------- init state propagation ---------- */
-    double res = 1 / 2.0, time_res = 1 / 1.0, time_res_init = 1 / 8.0;
-
+    double res = 1 / 2.0, time_res = 1 / 1.0, time_res_init = 1 / 20.0;
     Eigen::Matrix<double, 6, 1> cur_state = cur_node->state;
     Eigen::Matrix<double, 6, 1> pro_state;
     vector<PathNodePtr> tmp_expand_nodes;
     Eigen::Vector3d um;
     double pro_t;
-
     vector<Eigen::Vector3d> inputs;
     vector<double> durations;
-
     if (init_search)
     {
       inputs.push_back(start_acc_);
-      for (double tau = time_res_init * init_max_tau_; tau <= init_max_tau_; tau += time_res_init * init_max_tau_)
+      for (double tau = time_res_init * init_max_tau_; tau <= init_max_tau_ + 1e-3;
+           tau += time_res_init * init_max_tau_)
         durations.push_back(tau);
+      init_search = false;
     }
     else
     {
@@ -137,101 +160,81 @@ cout << "[Kino Astar]: Reach horizon_" << endl;
         for (double ay = -max_acc_; ay <= max_acc_ + 1e-3; ay += max_acc_ * res)
           for (double az = -max_acc_; az <= max_acc_ + 1e-3; az += max_acc_ * res)
           {
-            um << ax, ay, 0.5 * az;
+            um << ax, ay, az;
             inputs.push_back(um);
           }
       for (double tau = time_res * max_tau_; tau <= max_tau_; tau += time_res * max_tau_)
         durations.push_back(tau);
     }
 
-    /* ---------- state propagation loop ---------- */
     // cout << "cur state:" << cur_state.head(3).transpose() << endl;
     for (int i = 0; i < inputs.size(); ++i)
       for (int j = 0; j < durations.size(); ++j)
       {
-        init_search = false;
         um = inputs[i];
         double tau = durations[j];
         stateTransit(cur_state, pro_state, um, tau);
         pro_t = cur_node->time + tau;
 
-        /* ---------- check if in free space ---------- */
+        Eigen::Vector3d pro_pos = pro_state.head(3);
 
-        /* inside map range */
-        if (pro_state(0) <= origin_(0) || pro_state(0) >= map_size_3d_(0) || pro_state(1) <= origin_(1) ||
-            pro_state(1) >= map_size_3d_(1) || pro_state(2) <= origin_(2) || pro_state(2) >= map_size_3d_(2))
-        {
-#ifdef DEBUG
-              cout << "outside map" << endl;
-#endif   
-          continue;
-        }
-
-        /* not in close set */
-        Eigen::Vector3i pro_id = posToIndex(pro_state.head(3));
+        // Check if in close set
+        Eigen::Vector3i pro_id = posToIndex(pro_pos);
         int pro_t_id = timeToIndex(pro_t);
-
         PathNodePtr pro_node = dynamic ? expanded_nodes_.find(pro_id, pro_t_id) : expanded_nodes_.find(pro_id);
-
         if (pro_node != NULL && pro_node->node_state == IN_CLOSE_SET)
         {
-          // cout << "in closeset" << endl;
+          if (init_search)
+            std::cout << "close" << std::endl;
           continue;
         }
 
-        /* vel feasibe */
+        // Check maximal velocity
         Eigen::Vector3d pro_v = pro_state.tail(3);
         if (fabs(pro_v(0)) > max_vel_ || fabs(pro_v(1)) > max_vel_ || fabs(pro_v(2)) > max_vel_)
         {
-          // cout << "vel infeasible" << endl;
+          if (init_search)
+            std::cout << "vel" << std::endl;
           continue;
         }
 
-        /* not in the same voxel */
+        // Check not in the same voxel
         Eigen::Vector3i diff = pro_id - cur_node->index;
         int diff_time = pro_t_id - cur_node->time_idx;
         if (diff.norm() == 0 && ((!dynamic) || diff_time == 0))
         {
+          if (init_search)
+            std::cout << "same" << std::endl;
           continue;
         }
 
-        /* collision free */
+        // Check safety
         Eigen::Vector3d pos;
         Eigen::Matrix<double, 6, 1> xt;
         bool is_occ = false;
-
         for (int k = 1; k <= check_num_; ++k)
         {
           double dt = tau * double(k) / double(check_num_);
           stateTransit(cur_state, xt, um, dt);
           pos = xt.head(3);
-
-          double dist =
-              dynamic ? edt_env_->evaluateCoarseEDT(pos, cur_node->time + dt) : edt_env_->evaluateCoarseEDT(pos, -1.0);
-          if (dist <= margin_)
+          if (edt_environment_->sdf_map_->getInflateOccupancy(pos) == 1 )
           {
             is_occ = true;
-
             break;
           }
         }
-
         if (is_occ)
         {
-#ifdef DEBUG
-          printf("A star pos: [%f,  %f,  %f]\n", pos(0), pos(1), pos(2));
-          cout << "collision" << endl;
-#endif      
+          if (init_search)
+            std::cout << "safe" << std::endl;
           continue;
         }
 
-        /* ---------- compute cost ---------- */
         double time_to_goal, tmp_g_score, tmp_f_score;
         tmp_g_score = (um.squaredNorm() + w_time_) * tau + cur_node->g_score;
         tmp_f_score = tmp_g_score + lambda_heu_ * estimateHeuristic(pro_state, end_state, time_to_goal);
 
-        /* ---------- compare expanded node in this loop ---------- */
-
+        // Compare nodes expanded from the same parent
         bool prune = false;
         for (int j = 0; j < tmp_expand_nodes.size(); ++j)
         {
@@ -253,8 +256,7 @@ cout << "[Kino Astar]: Reach horizon_" << endl;
           }
         }
 
-        /* ---------- new neighbor in this loop ---------- */
-
+        // This node end up in a voxel different from others
         if (!prune)
         {
           if (pro_node == NULL)
@@ -309,15 +311,13 @@ cout << "[Kino Astar]: Reach horizon_" << endl;
             cout << "error type in searching: " << pro_node->node_state << endl;
           }
         }
-
-        /* ----------  ---------- */
       }
+    // init_search = false;
   }
 
-  /* ---------- open set empty, no path ---------- */
   cout << "open set empty, no path!" << endl;
-  // cout << "use node num: " << use_node_num_ << endl;
-  // cout << "iter num: " << iter_num_ << endl;
+  cout << "use node num: " << use_node_num_ << endl;
+  cout << "iter num: " << iter_num_ << endl;
   return NO_PATH;
 }
 
@@ -332,11 +332,14 @@ void KinodynamicAstar::setParam(ros::NodeHandle& nh)
   nh.param("search/resolution_astar", resolution_, -1.0);
   nh.param("search/time_resolution", time_resolution_, -1.0);
   nh.param("search/lambda_heu", lambda_heu_, -1.0);
-  nh.param("search/margin", margin_, -1.0);
   nh.param("search/allocate_num", allocate_num_, -1);
   nh.param("search/check_num", check_num_, -1);
+  nh.param("search/optimistic", optimistic_, true);
+  tie_breaker_ = 1.0 + 1.0 / 10000;
 
-  cout << "margin:" << margin_ << endl;
+  double vel_margin;
+  nh.param("search/vel_margin", vel_margin, 0.0);
+  max_vel_ += vel_margin;
 }
 
 void KinodynamicAstar::retrievePath(PathNodePtr end_node)
@@ -366,7 +369,7 @@ double KinodynamicAstar::estimateHeuristic(Eigen::VectorXd x1, Eigen::VectorXd x
 
   std::vector<double> ts = quartic(c5, c4, c3, c2, c1);
 
-  double v_max = max_vel_;
+  double v_max = max_vel_ * 0.5;
   double t_bar = (x1.head(3) - x2.head(3)).lpNorm<Infinity>() / v_max;
   ts.push_back(t_bar);
 
@@ -446,7 +449,10 @@ bool KinodynamicAstar::computeShotTraj(Eigen::VectorXd state1, Eigen::VectorXd s
       return false;
     }
 
-    if (edt_env_->evaluateCoarseEDT(coord, -1.0) <= margin_)
+    // if (edt_environment_->evaluateCoarseEDT(coord, -1.0) <= margin_) {
+    //   return false;
+    // }
+    if (edt_environment_->sdf_map_->getInflateOccupancy(coord) == 1)
     {
       return false;
     }
@@ -539,7 +545,7 @@ void KinodynamicAstar::init()
   /* ---------- map params ---------- */
   this->inv_resolution_ = 1.0 / resolution_;
   inv_time_resolution_ = 1.0 / time_resolution_;
-  edt_env_->getMapRegion(origin_, map_size_3d_);
+  edt_environment_->sdf_map_->getRegion(origin_, map_size_3d_);
 
   cout << "origin_: " << origin_.transpose() << endl;
   cout << "map size: " << map_size_3d_.transpose() << endl;
@@ -558,7 +564,7 @@ void KinodynamicAstar::init()
 
 void KinodynamicAstar::setEnvironment(const EDTEnvironment::Ptr& env)
 {
-  this->edt_env_ = env;
+  this->edt_environment_ = env;
 }
 
 void KinodynamicAstar::reset()
@@ -579,6 +585,7 @@ void KinodynamicAstar::reset()
   use_node_num_ = 0;
   iter_num_ = 0;
   is_shot_succ_ = false;
+  has_path_ = false;
 }
 
 std::vector<Eigen::Vector3d> KinodynamicAstar::getKinoTraj(double delta_t)
@@ -603,7 +610,6 @@ std::vector<Eigen::Vector3d> KinodynamicAstar::getKinoTraj(double delta_t)
     node = node->parent;
   }
   reverse(state_list.begin(), state_list.end());
-
   /* ---------- get traj of one shot ---------- */
   if (is_shot_succ_)
   {
@@ -627,48 +633,56 @@ std::vector<Eigen::Vector3d> KinodynamicAstar::getKinoTraj(double delta_t)
   return state_list;
 }
 
-Eigen::MatrixXd KinodynamicAstar::getSamples(double& ts, int& K)
+void KinodynamicAstar::getSamples(double& ts, vector<Eigen::Vector3d>& point_set,
+                                  vector<Eigen::Vector3d>& start_end_derivatives)
 {
-  /* ---------- final trajectory time ---------- */
+  /* ---------- path duration ---------- */
   double T_sum = 0.0;
   if (is_shot_succ_)
     T_sum += t_shot_;
-
   PathNodePtr node = path_nodes_.back();
   while (node->parent != NULL)
   {
     T_sum += node->duration;
     node = node->parent;
   }
-  // cout << "final time:" << T_sum << endl;
+  // cout << "duration:" << T_sum << endl;
 
-  /* ---------- init for sampling ---------- */
-  K = floor(T_sum / ts);
-  ts = T_sum / (K + 1);
-  // cout << "K:" << K << ", ts:" << ts << endl;
-
-  bool sample_shot_traj = is_shot_succ_;
-
-  Eigen::VectorXd sx(K + 2), sy(K + 2), sz(K + 2);
-  int sample_num = 0;
-  node = path_nodes_.back();
-
+  // Calculate boundary vel and acc
+  Eigen::Vector3d end_vel, end_acc;
   double t;
-  if (sample_shot_traj)
+  if (is_shot_succ_)
+  {
     t = t_shot_;
+    end_vel = end_vel_;
+    for (int dim = 0; dim < 3; ++dim)
+    {
+      Vector4d coe = coef_shot_.row(dim);
+      end_acc(dim) = 2 * coe(2) + 6 * coe(3) * t_shot_;
+    }
+  }
   else
   {
-    t = node->duration;
-    end_vel_ = node->state.tail(3);
+    t = path_nodes_.back()->duration;
+    end_vel = node->state.tail(3);
+    end_acc = path_nodes_.back()->input;
   }
+
+  // Get point samples
+  int seg_num = floor(T_sum / ts);
+  seg_num = max(8, seg_num);
+  ts = T_sum / double(seg_num);
+  bool sample_shot_traj = is_shot_succ_;
+  node = path_nodes_.back();
 
   for (double ti = T_sum; ti > -1e-5; ti -= ts)
   {
-    /* ---------- sample shot traj---------- */
     if (sample_shot_traj)
     {
+      // samples on shot traj
       Vector3d coord;
-      VectorXd poly1d, time(4);
+      Vector4d poly1d, time;
+
       for (int j = 0; j < 4; j++)
         time(j) = pow(t, j);
 
@@ -678,8 +692,7 @@ Eigen::MatrixXd KinodynamicAstar::getSamples(double& ts, int& K)
         coord(dim) = poly1d.dot(time);
       }
 
-      sx(sample_num) = coord(0), sy(sample_num) = coord(1), sz(sample_num) = coord(2);
-      ++sample_num;
+      point_set.push_back(coord);
       t -= ts;
 
       /* end of segment */
@@ -690,18 +703,18 @@ Eigen::MatrixXd KinodynamicAstar::getSamples(double& ts, int& K)
           t += node->duration;
       }
     }
-    /* ---------- sample search traj---------- */
     else
     {
+      // samples on searched traj
       Eigen::Matrix<double, 6, 1> x0 = node->parent->state;
       Eigen::Matrix<double, 6, 1> xt;
       Vector3d ut = node->input;
 
       stateTransit(x0, xt, ut, t);
-      sx(sample_num) = xt(0), sy(sample_num) = xt(1), sz(sample_num) = xt(2);
-      ++sample_num;
 
+      point_set.push_back(xt.head(3));
       t -= ts;
+
       // cout << "t: " << t << ", t acc: " << T_accumulate << endl;
       if (t < -1e-5 && node->parent->parent != NULL)
       {
@@ -710,17 +723,25 @@ Eigen::MatrixXd KinodynamicAstar::getSamples(double& ts, int& K)
       }
     }
   }
-  /* ---------- return samples ---------- */
-  Eigen::MatrixXd samples(3, K + 5);
-  samples.block(0, 0, 1, K + 2) = sx.reverse().transpose();
-  samples.block(1, 0, 1, K + 2) = sy.reverse().transpose();
-  samples.block(2, 0, 1, K + 2) = sz.reverse().transpose();
-  samples.col(K + 2) = start_vel_;
-  samples.col(K + 3) = end_vel_;
-  // samples.col(K + 4) = node->input;
-  samples.col(K + 4) = start_acc_;
+  reverse(point_set.begin(), point_set.end());
 
-  return samples;
+  // calculate start acc
+  Eigen::Vector3d start_acc;
+  if (path_nodes_.back()->parent == NULL)
+  {
+    // no searched traj, calculate by shot traj
+    start_acc = 2 * coef_shot_.col(2);
+  }
+  else
+  {
+    // input of searched traj
+    start_acc = node->input;
+  }
+
+  start_end_derivatives.push_back(start_vel_);
+  start_end_derivatives.push_back(end_vel);
+  start_end_derivatives.push_back(start_acc);
+  start_end_derivatives.push_back(end_acc);
 }
 
 std::vector<PathNodePtr> KinodynamicAstar::getVisitedNodes()
@@ -734,7 +755,8 @@ Eigen::Vector3i KinodynamicAstar::posToIndex(Eigen::Vector3d pt)
 {
   Vector3i idx = ((pt - origin_) * inv_resolution_).array().floor().cast<int>();
 
-  // idx << floor((pt(0) - origin_(0)) * inv_resolution_), floor((pt(1) - origin_(1)) * inv_resolution_),
+  // idx << floor((pt(0) - origin_(0)) * inv_resolution_), floor((pt(1) -
+  // origin_(1)) * inv_resolution_),
   //     floor((pt(2) - origin_(2)) * inv_resolution_);
 
   return idx;
@@ -759,4 +781,4 @@ void KinodynamicAstar::stateTransit(Eigen::Matrix<double, 6, 1>& state0, Eigen::
   state1 = phi_ * state0 + integral;
 }
 
-}  // namespace dyn_planner
+}  // namespace fast_planner
