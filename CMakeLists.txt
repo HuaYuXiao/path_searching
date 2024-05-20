@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(path_searching)
 
 set(CMAKE_BUILD_TYPE "Release")
-ADD_COMPILE_OPTIONS(-std=c++14 )
+ADD_COMPILE_OPTIONS(-std=c++14)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 set(CMAKE_PREFIX_PATH /opt/ros/noetic;/usr/local;$ENV{HOME}/planner_ws/devel;$ENV{HOME}/mapping_ws/devel;$ENV{HOME}/tool_ws/devel)
@@ -39,7 +39,6 @@ add_library(path_searching
         src/kinodynamic_astar.cpp
         src/astar.cpp
         src/topo_prm.cpp
+        src/dyn_a_star.cpp
     )
-target_link_libraries(path_searching
-    ${catkin_LIBRARIES} 
-    )  
+target_link_libraries(path_searching ${catkin_LIBRARIES})
