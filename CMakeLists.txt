@@ -4,7 +4,6 @@ project(path_searching)
 set(CMAKE_BUILD_TYPE "Release")
 ADD_COMPILE_OPTIONS(-std=c++14)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
-
 set(CMAKE_PREFIX_PATH /opt/ros/noetic;/usr/local;$ENV{HOME}/planner_ws/devel;$ENV{HOME}/mapping_ws/devel;$ENV{HOME}/tool_ws/devel)
 message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 
@@ -36,9 +35,10 @@ include_directories(
 )
 
 add_library(path_searching
-        src/kinodynamic_astar.cpp
+        src/kinodynamic_astar_fast.cpp
         src/astar.cpp
         src/topo_prm.cpp
         src/dyn_a_star.cpp
+        src/kinodynamic_astar_pe.cpp
     )
 target_link_libraries(path_searching ${catkin_LIBRARIES})
