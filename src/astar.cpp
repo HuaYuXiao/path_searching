@@ -233,6 +233,34 @@ std::vector<Eigen::Vector3d> Astar::getPath() {
   return path;
 }
 
+nav_msgs::Path Astar::get_ros_path(Eigen::Vector3d goal_pos){
+    nav_msgs::Path path;
+
+    path.poses.clear();
+
+    path.header.stamp = ros::Time::now();
+    // TODO edit frame_id, original world
+    path.header.frame_id = "map";
+
+    geometry_msgs::PoseStamped path_i_pose;
+    for (uint i=0; i<path_nodes_.size(); ++i){
+        path_i_pose.header.frame_id = "map";
+        path_i_pose.pose.position.x = path_nodes_[i]->position[0];
+        path_i_pose.pose.position.y = path_nodes_[i]->position[1];
+        path_i_pose.pose.position.z = path_nodes_[i]->position[2];
+        // TODO: what is push_back?
+        path.poses.push_back(path_i_pose);
+    }
+
+    path_i_pose.header.frame_id = "map";
+    path_i_pose.pose.position.x = goal_pos[0];
+    path_i_pose.pose.position.y = goal_pos[1];
+    path_i_pose.pose.position.z = goal_pos[2];
+    path.poses.push_back(path_i_pose);
+
+    return path;
+}
+
 double Astar::getDiagHeu(Eigen::Vector3d x1, Eigen::Vector3d x2) {
   double dx = fabs(x1(0) - x2(0));
   double dy = fabs(x1(1) - x2(1));

@@ -37,6 +37,8 @@
 #include "plan_env/edt_environment.h"
 #include <boost/functional/hash.hpp>
 #include <queue>
+#include <nav_msgs/Path.h>
+
 namespace fast_planner {
 // #define REACH_HORIZON 1
 // #define REACH_END 2
@@ -143,12 +145,12 @@ private:
   Eigen::Vector3d origin_, map_size_3d_;
   double time_origin_;
 
-  /* helper */
+  /* helper 辅助函数*/
   Eigen::Vector3i posToIndex(Eigen::Vector3d pt);
   int timeToIndex(double time);
   void retrievePath(NodePtr end_node);
 
-  /* heuristic function */
+  /* heuristic function 搜索启发函数，三种形式，选用其中一种即可*/
   double getDiagHeu(Eigen::Vector3d x1, Eigen::Vector3d x2);
   double getManhHeu(Eigen::Vector3d x1, Eigen::Vector3d x2);
   double getEuclHeu(Eigen::Vector3d x1, Eigen::Vector3d x2);
@@ -161,13 +163,19 @@ public:
 
   /* main API */
   void setParam(ros::NodeHandle& nh);
+    // 初始化
   void init();
+    // 重置
   void reset();
+    // 搜索
   int search(Eigen::Vector3d start_pt, Eigen::Vector3d end_pt, bool dynamic = false,
              double time_start = -1.0);
 
   void setEnvironment(const EDTEnvironment::Ptr& env);
+    // 返回路径
   std::vector<Eigen::Vector3d> getPath();
+    // 返回ros消息格式的路径
+    nav_msgs::Path get_ros_path(Eigen::Vector3d goal_pos);
   std::vector<NodePtr> getVisitedNodes();
 
   typedef shared_ptr<Astar> Ptr;
