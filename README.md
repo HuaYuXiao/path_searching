@@ -27,6 +27,6 @@ The path_searching package, `Fast-Planner` & `EGO-Planner` & `PE-Planner`
 ## Installation
 
 ```bash
-cd ~/EasonDrone
-catkin_make install --source Planning/path_searching --build Planning/path_searching/build
+git clone https://gitee.com/hyx020222/path_searching.git ~/easondrone_ws/plan/path_searching
+cd ~/easondrone_ws && catkin_make --source plan/path_searching --build plan/path_searching/build
 ```
