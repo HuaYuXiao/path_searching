@@ -8,6 +8,7 @@
 #include <plan_env/grid_map.h>
 #include <queue>
 
+namespace ego_planner {
 constexpr double inf = 1 >> 20;
 struct GridNode;
 typedef GridNode *GridNodePtr;
@@ -112,4 +113,5 @@ inline bool AStar::Coord2Index(const Eigen::Vector3d &pt, Eigen::Vector3i &idx) 
     return true;
 };
 
+} // namespace ego_planner
 #endif

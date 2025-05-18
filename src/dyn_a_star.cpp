@@ -3,6 +3,7 @@
 using namespace std;
 using namespace Eigen;
 
+namespace ego_planner {
 AStar::~AStar()
 {
     for (int i = 0; i < POOL_SIZE_(0); i++)
@@ -258,3 +259,5 @@ vector<Vector3d> AStar::getPath()
     reverse(path.begin(), path.end());
     return path;
 }
+
+} // namespace ego_planner

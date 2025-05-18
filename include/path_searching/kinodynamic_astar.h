@@ -1,7 +1,7 @@
 #ifndef _KINODYNAMIC_ASTAR_H
 #define _KINODYNAMIC_ASTAR_H
 
-// #include <path_searching/matrix_hash.h>
+// #include <plan_env/matrix_hash.h>
 #include <ros/console.h>
 #include <ros/ros.h>
 #include <Eigen/Eigen>
